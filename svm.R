@@ -1,0 +1,104 @@
+## SVM ANALYSIS
+
+# load packages
+library(e1071)
+
+# --------------------------------------------
+# start with Iris dataset
+# load data
+iris <- iris
+head(iris)
+
+# pairwise plot iris data
+cols <- character(nrow(iris))
+cols[] <- "black"
+cols[iris$Species == "setosa"] <- "slateblue"
+cols[iris$Species == "versicolor"] <- "grey25"
+cols[iris$Species == "virginica"] <- "tomato2"
+pairs(iris[,1:4], col = cols)
+
+# partition X matrix and y response
+X <- iris[,1:4]
+y <- as.factor(iris$Species) # as factor
+
+# sample with seed and partition training and test sets
+set.seed(1) # set seed
+trn.idx <- sample(1:nrow(X), round(nrow(X)*0.8, 0))
+tst.idx <- (-trn.idx)
+X.trn <- X[c(trn.idx),]
+y.trn <- y[trn.idx]
+X.tst <- X[c(tst.idx),]
+y.tst <- y[tst.idx]
+
+# build model with linear kernel
+svm.linear.out <- svm(Species ~., data = iris, kernel = "linear")
+svm.linear.out
+head(svm.linear.out$SV) # display support vectors used for classification
+
+# evaluate performance 
+pred.train <- predict(svm.linear.out, X.trn) # training response
+mean(pred.train == y.trn) # prediction accuracy
+table(pred.train, y.trn) # confusion matrix
+
+pred.test <- predict(svm.linear.out, X.tst) # test response
+mean(pred.test == y.tst) 
+table(pred.test, y.tst)
+
+# build model with polynomial kernel
+svm.poly.out <- svm(Species ~., data = iris, kernel = "polynomial")
+svm.poly.out
+head(svm.poly.out$SV) # display support vectors used for classification
+
+# evaluate performance 
+pred.train <- predict(svm.poly.out, X.trn) # training response
+mean(pred.train == y.trn) # prediction accuracy
+table(pred.train, y.trn) # confusion matrix
+
+pred.test <- predict(svm.poly.out, X.tst) # test response
+mean(pred.test == y.tst) 
+table(pred.test, y.tst)
+
+## tuning parameters: kernel type, classification type, C (regularization term), gamma
+
+## larger values of C (regularization coefficient) are more precise, but may overfit on training data
+## smaller values of C are less precise and have larger error rate
+
+## larger gamma considers points closest to determine margin
+## inversely, smaller gammas consider points further away from "center" to determine margin
+
+# vectors for tuning
+kernels <- c("linear", "polynomial", "radial", "sigmoid")
+types <- c("C-classification", "nu-classification")
+gam.vect <- c(0.01, 0.1, 0.25, 0.5, 1, 5, 10)
+c.vect <- c(0.01, 0.1, 0.5, 1, 2, 5)
+
+# get data frame of grid search results
+svm.df <- as.character(data.frame())
+for (i in 1:length(kernels)) {
+  for (j in 1:length(types)) {
+    # tune svm
+    set.seed(1)
+    svm.out <- tune.svm(Species ~., data = iris, gamma = gam.vect, cost = c.vect, kernel = kernels[i], type = types[j])
+    best.params <- svm.out$best.parameters # best parameters from grid search
+    set.seed(1)
+    svm.best.mod <- svm(Species ~., data = iris, gamma = best.params$gamma, cost = best.params$cost, kernel = kernels[i], type = types[j])
+    
+    pred.train <- predict(svm.best.mod, X.trn) # training response
+    trn.acc <- mean(pred.train == y.trn) 
+    # table(pred.train, y.trn)
+    pred.test <- predict(svm.best.mod, X.tst) # test response
+    tst.acc <- mean(pred.test == y.tst)
+    # table(pred.test, y.tst)
+    
+    temp.vect <- c(kernels[i], types[j], best.params$gamma, best.params$cost, round(trn.acc,3), round(tst.acc,3), sum(svm.best.mod$nSV))
+    svm.df <- rbind(svm.df, as.character(temp.vect))
+  }
+}
+colnames(svm.df) <- c("kernel", "type", "best.gamma", "best.c", "training.acc", "test.acc", "num.sp.vects") # modify column names
+
+svm.df
+
+# --------------------------------------------
+# trying with breast cancer dataset
+# load data
+bc <- read.csv(file = "Desktop/MA 373 STAT MODELING/DATA/wisconsin breast cancer.csv", header = T)
