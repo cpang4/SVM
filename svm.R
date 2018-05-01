@@ -23,15 +23,18 @@ y <- as.factor(iris$Species) # as factor
 
 # sample with seed and partition training and test sets
 set.seed(1) # set seed
-trn.idx <- sample(1:nrow(X), round(nrow(X)*0.8, 0))
+trn.idx <- sample(1:nrow(iris), round(nrow(iris)*0.8, 0))
 tst.idx <- (-trn.idx)
+train <- iris[c(trn.idx),]
+test <- iris[c(-trn.idx),]
+
 X.trn <- X[c(trn.idx),]
 y.trn <- y[trn.idx]
 X.tst <- X[c(tst.idx),]
 y.tst <- y[tst.idx]
 
 # build model with linear kernel
-svm.linear.out <- svm(Species ~., data = iris, kernel = "linear")
+svm.linear.out <- svm(Species ~., data = train, kernel = "linear")
 svm.linear.out
 head(svm.linear.out$SV) # display support vectors used for classification
 
@@ -45,7 +48,7 @@ mean(pred.test == y.tst)
 table(pred.test, y.tst)
 
 # build model with polynomial kernel
-svm.poly.out <- svm(Species ~., data = iris, kernel = "polynomial")
+svm.poly.out <- svm(Species ~., data = train, kernel = "polynomial")
 svm.poly.out
 head(svm.poly.out$SV) # display support vectors used for classification
 
@@ -78,10 +81,10 @@ for (i in 1:length(kernels)) {
   for (j in 1:length(types)) {
     # tune svm
     set.seed(1)
-    svm.out <- tune.svm(Species ~., data = iris, gamma = gam.vect, cost = c.vect, kernel = kernels[i], type = types[j])
+    svm.out <- tune.svm(Species ~., data = train, gamma = gam.vect, cost = c.vect, kernel = kernels[i], type = types[j])
     best.params <- svm.out$best.parameters # best parameters from grid search
     set.seed(1)
-    svm.best.mod <- svm(Species ~., data = iris, gamma = best.params$gamma, cost = best.params$cost, kernel = kernels[i], type = types[j])
+    svm.best.mod <- svm(Species ~., data = train, gamma = best.params$gamma, cost = best.params$cost, kernel = kernels[i], type = types[j])
     
     pred.train <- predict(svm.best.mod, X.trn) # training response
     trn.acc <- mean(pred.train == y.trn) 
@@ -102,3 +105,58 @@ svm.df
 # trying with breast cancer dataset
 # load data
 bc <- read.csv(file = "Desktop/MA 373 STAT MODELING/DATA/wisconsin breast cancer.csv", header = T)
+head(bc)
+
+# clean data
+bc <- bc[,-1] # get rid of id column
+bc[,1] <- as.factor(bc[,1])
+X <- bc[,c(2:ncol(bc))]
+y <- bc[,1]
+colnames(bc)[1] <- "type"
+
+# pairwise plot iris data
+cols <- character(nrow(bc))
+cols[] <- "slateblue"
+cols[bc$type == "M"] <- "tomato2"
+dev.new()
+pairs(bc[,2:10], col = cols)
+plot(bc$X0.2776, bc$X0.07871, col = cols) # overlapping data plot
+
+# sample with seed and partition training and test sets
+set.seed(1) # set seed
+trn.idx <- sample(1:nrow(bc), round(nrow(bc)*0.8, 0))
+tst.idx <- (-trn.idx)
+train <- bc[c(trn.idx),]
+test <- bc[c(-trn.idx),]
+
+X.trn <- X[c(trn.idx),]
+y.trn <- y[trn.idx]
+X.tst <- X[c(tst.idx),]
+y.tst <- y[tst.idx]
+
+# get data frame of grid search results
+svm.df <- as.character(data.frame())
+for (i in 1:length(kernels)) {
+  for (j in 1:length(types)) {
+    # tune svm
+    set.seed(1)
+    svm.out <- tune.svm(type ~., data = train, gamma = gam.vect, cost = c.vect, kernel = kernels[i], type = types[j])
+    best.params <- svm.out$best.parameters # best parameters from grid search
+    set.seed(1)
+    svm.best.mod <- svm(type ~., data = train, gamma = best.params$gamma, cost = best.params$cost, kernel = kernels[i], type = types[j])
+    
+    pred.train <- predict(svm.best.mod, X.trn) # training response
+    trn.acc <- mean(pred.train == y.trn) 
+    # table(pred.train, y.trn)
+    pred.test <- predict(svm.best.mod, X.tst) # test response
+    tst.acc <- mean(pred.test == y.tst)
+    # table(pred.test, y.tst)
+    
+    temp.vect <- c(kernels[i], types[j], best.params$gamma, best.params$cost, round(trn.acc,3), round(tst.acc,3), sum(svm.best.mod$nSV))
+    svm.df <- rbind(svm.df, as.character(temp.vect))
+  }
+}
+colnames(svm.df) <- c("kernel", "type", "best.gamma", "best.c", "training.acc", "test.acc", "num.sp.vects") # modify column names
+
+# --------------------------------------------
+# try glass dataset
