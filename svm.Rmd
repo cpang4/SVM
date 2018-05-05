@@ -1,0 +1,576 @@
+---
+title: "Support Vector Machines"
+author: "Claire Pang and Ien Whang"
+output: html_document
+---
+
+```{r, echo=F, eval=T, warnings=F, message=F} 
+# load packages
+library(e1071)
+library(randomForest)
+library(knitr)
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+# functions to return specificity and sensitivity
+getSensitivity <- function(table) {
+  return(table[1,3]/(table[1,3] + table[2,3]))
+}
+
+getSpecificity <- function(table) {
+  return(table[4,3]/(table[3,3] + table[4,3]))
+}
+```
+
+## Iris Dataset
+A simple low dimensional and linearly separable case to see how SVM classfication works. In this multi-class example, the algorithm has a one-against-one approach, in which k(k-1)/2 binary classifiers are trained; the appropriate class is found by a voting scheme.
+```{r, echo=F, eval=T, warnings=F} 
+# load data
+iris <- iris
+head(iris)
+```
+
+```{r, echo=F, eval=T, warnings=F, fig.height = 8, fig.width = 8.5, fig.align='center'} 
+# Pairwise Plot
+cols <- character(nrow(iris))
+cols[] <- "black"
+cols[iris$Species == "setosa"] <- "slateblue"
+cols[iris$Species == "versicolor"] <- "grey25"
+cols[iris$Species == "virginica"] <- "tomato2"
+pairs(iris[,1:4], col = cols)
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+# partition X matrix and y response
+X <- iris[,1:4]
+y <- as.factor(iris$Species) # as factor
+
+# sample with seed and partition training and test sets
+set.seed(1) # set seed
+trn.idx <- sample(1:nrow(iris), round(nrow(iris)*0.8, 0))
+tst.idx <- (-trn.idx)
+train <- iris[c(trn.idx),]
+test <- iris[c(-trn.idx),]
+
+X.trn <- X[c(trn.idx),]
+y.trn <- y[trn.idx]
+X.tst <- X[c(tst.idx),]
+y.tst <- y[tst.idx]
+```
+
+#### Build SVM model with linear kernel
+```{r, echo=F, eval=T, warnings=F} 
+svm.linear.out <- svm(Species ~., data = train, kernel = "linear")
+svm.linear.out
+# head(svm.linear.out$SV) # display support vectors used for classification
+
+# evaluate performance 
+pred.train <- predict(svm.linear.out, X.trn) # training response
+# mean(pred.train == y.trn) # prediction accuracy
+# table(pred.train, y.trn) # confusion matrix
+
+pred.test <- predict(svm.linear.out, X.tst) # test response
+# mean(pred.test == y.tst) 
+print("Linear Output Table: ")
+table(pred.test, y.tst)
+```
+
+#### Build SVM model with polynomial kernel
+```{r, echo=F, eval=T, warnings=F} 
+svm.poly.out <- svm(Species ~., data = train, kernel = "polynomial")
+svm.poly.out
+# head(svm.poly.out$SV) # display support vectors used for classification
+
+# evaluate performance 
+pred.train <- predict(svm.poly.out, X.trn) # training response
+# mean(pred.train == y.trn) # prediction accuracy
+# table(pred.train, y.trn) # confusion matrix
+
+pred.test <- predict(svm.poly.out, X.tst) # test response
+# mean(pred.test == y.tst) 
+print("Polynomial Output Table:")
+table(pred.test, y.tst)
+```
+   
+#### Tuning
+**Tuning parameters**: Kernel Type, Classification Type, C (regularization term), Gamma   
+Larger values of C are more precise, but may overfit on training data, while smaller values of C are less precise and have a larger error rate.  
+Larger gamma considers points closest to determine margin, and inversely, smaller gammas consider points further away from "center" to determine margin.  
+    
+```{r, echo=T, eval=T, warnings=F} 
+# Declare vectors for tuning
+kernels <- c("linear", "polynomial", "radial", "sigmoid")
+types <- c("C-classification", "nu-classification")
+gam.vect <- c(0.01, 0.1, 0.25, 0.5, 1, 5, 10)
+c.vect <- c(0.01, 0.1, 0.5, 1, 2, 5)
+```
+
+#### Grid-search to find optimal model
+```{r, echo=F, eval=T, warnings=F} 
+svm.df <- as.character(data.frame())
+for (i in 1:length(kernels)) {
+  for (j in 1:length(types)) {
+    # tune svm
+    set.seed(1)
+    svm.out <- tune.svm(Species ~., data = train, gamma = gam.vect, cost = c.vect, kernel = kernels[i], type = types[j])
+    best.params <- svm.out$best.parameters # best parameters from grid search
+    set.seed(1)
+    svm.best.mod <- svm(Species ~., data = train, gamma = best.params$gamma, cost = best.params$cost, kernel = kernels[i], type = types[j])
+    
+    pred.train <- predict(svm.best.mod, X.trn) # training response
+    trn.acc <- mean(pred.train == y.trn) 
+    # table(pred.train, y.trn)
+    pred.test <- predict(svm.best.mod, X.tst) # test response
+    tst.acc <- mean(pred.test == y.tst)
+    # table(pred.test, y.tst)
+    
+    temp.vect <- c(kernels[i], types[j], best.params$gamma, best.params$cost, round(trn.acc,3), round(tst.acc,3), sum(svm.best.mod$nSV))
+    svm.df <- rbind(svm.df, as.character(temp.vect))
+  }
+}
+colnames(svm.df) <- c("kernel", "type", "best.gamma", "best.c", "training.acc", "test.acc", "num.sp.vects") # modify column names
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+kable(svm.df, caption = "Iris Grid-Search Results", align = c("c", "r"))
+```
+   
+In the case of the Iris dataset, the linear kernel with C-classification performs the best out of all models. It is most accurate and requires the lease number of support vectors. Generally, when selecting a model, we want to select the model where the number of support vectors is relatively low. This is to have a generalized model that is not overfitted to the training data.   
+
+
+*****     
+## Wisconsin Breast Cancer Dataset
+As compared to the Iris dataset, this dataset has only two classes, ideal for SVM classification. This dataset was chosen to show that even in a high dimensional setting with a moderate number of observations, an SVM classifier is still effective at performing classification. This is because in a high dimensional setting, the decision boundary (or separation hyperplane) has many opportunities to find a separation between the two classes of observations.   
+```{r, echo=F, eval=T, warnings=F} 
+# load data
+options(width = 100)
+bc <- read.csv(file = "wisconsin breast cancer.csv", header = T)
+bc <- bc[,-c(which(colnames(bc) == "X"))]
+head(bc)
+```
+
+
+```{r, echo=F, eval=T, warnings=F, fig.height = 9, fig.width = 9, fig.align='center'} 
+# clean data
+bc <- bc[,-1] # get rid of id column
+bc[,1] <- as.factor(bc[,1])
+X <- bc[,c(2:ncol(bc))]
+y <- bc[,1]
+colnames(bc)[1] <- "type"
+
+# pairwise plot iris data
+cols <- character(nrow(bc))
+cols[] <- "slateblue"
+cols[bc$type == "M"] <- "tomato2"
+pairs(bc[,2:10], col = cols) # first 9 columns
+```
+   
+Below is a sample plot of two variables in the dataset. Many of the pairwise plots in this dataset are similar to this plot in the sense that the two classes are not linearly separable.   
+```{r, echo=F, eval=T, warnings=F, fig.height = 5, fig.width = 5, fig.align='center'} 
+# Example of overlapping points
+plot(bc$compactness_mean, bc$fractal_dimension_mean, col = cols, main = "Extracted Pair Plot", ylab = "Fractal Dimension Mean", xlab = "Compactness Mean") # overlapping data plot
+```
+
+
+```{r, echo=F, eval=T, warnings=F} 
+# sample with seed and partition training and test sets
+set.seed(1) # set seed
+trn.idx <- sample(1:nrow(bc), round(nrow(bc)*0.8, 0))
+tst.idx <- (-trn.idx)
+train <- bc[c(trn.idx),]
+test <- bc[c(-trn.idx),]
+
+X.trn <- X[c(trn.idx),]
+y.trn <- y[trn.idx]
+X.tst <- X[c(tst.idx),]
+y.tst <- y[tst.idx]
+```
+
+
+#### Perform grid-search to tune method
+```{r, echo=F, eval=T, warnings=F} 
+# get data frame of grid search results
+svm.df <- as.character(data.frame())
+for (i in 1:length(kernels)) {
+  for (j in 1:length(types)) {
+    # tune svm
+    set.seed(1)
+    svm.out <- tune.svm(type ~., data = train, gamma = gam.vect, cost = c.vect, kernel = kernels[i], type = types[j])
+    best.params <- svm.out$best.parameters # best parameters from grid search
+    set.seed(1)
+    svm.best.mod <- svm(type ~., data = train, gamma = best.params$gamma, cost = best.params$cost, kernel = kernels[i], type = types[j])
+    
+    pred.train <- predict(svm.best.mod, X.trn) # training response
+    trn.acc <- mean(pred.train == y.trn)
+    # table(pred.train, y.trn)
+    
+    pred.test <- predict(svm.best.mod, X.tst) # test response
+    tst.acc <- mean(pred.test == y.tst)
+    # table(pred.test, y.tst)
+    
+    temp.vect <- c(kernels[i], types[j], best.params$gamma, best.params$cost, round(trn.acc,3), round(tst.acc,3), sum(svm.best.mod$nSV))
+    svm.df <- rbind(svm.df, as.character(temp.vect))
+  }
+}
+colnames(svm.df) <- c("kernel", "type", "best.gamma", "best.c", "training.acc", "test.acc", "num.sp.vects") # modify column names
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+# plot table for grid search
+kable(svm.df, caption = "Breast Cancer Grid-Search Results", align = c("c", "r"))
+```
+     
+In this case, the SVM classifier with Radial Basis(Gaussian) kernel performs better than the classifier with the linear kernel, but does so with a larger number of support vectors. Below, we compare the SVM classifier with the Naive Bayes classifier and Random Forest classifier.
+
+
+```{r, echo=F, eval=T, warnings=F} 
+# get optimal model for svm and get values
+set.seed(1)
+svm.opt.out <- svm(type ~., data = train, gamma = 0.01, cost = 0.1, kernel = "radial", type = "C-classification")
+
+pred.train <- predict(svm.opt.out, X.trn) # training response
+trn.acc <- mean(pred.train == y.trn)
+pred.test <- predict(svm.opt.out, X.tst) # optimal svm model test predictions 
+tst.acc <- mean(pred.test == y.tst)
+
+# get sensitivity and specificity of nb model
+svm.tpr <- getSensitivity(as.data.frame(table(pred.test, y.tst)))
+svm.tnr <- getSpecificity(as.data.frame(table(pred.test, y.tst)))
+svm.vect <- c("Optimal SVM", round(trn.acc,3), round(tst.acc,3), round(svm.tpr,3), round(svm.tnr,3)) # vector for comparison table
+```
+
+```{r, echo=F, eval=T, warnings=F, fig.height = 5, fig.width = 7, fig.align='center'} 
+par(mfrow = c(1,2))
+plot(svm.opt.out, data = bc, radius_se ~ smoothness_worst)
+plot(svm.opt.out, data = bc, symmetry_mean ~ compactness_se)
+```
+    
+The above two plots are examples of how the classifier is performing on two randomly selected variable pairs in the dataset. It may be the case that the classifier is performing well in other pair instances, but not in these two. 
+
+#### Compare against Naive Bayes model
+```{r, echo=F, eval=T, warnings=F} 
+# naive bayes model
+nb.out <- naiveBayes(type ~., data = train)
+# nb.out$apriori # apriori classes
+
+# predict training response
+pred.train <- predict(nb.out, X.trn)
+trn.acc <- mean(pred.train == y.trn)
+# table(pred.train, y.trn)
+
+# predict test response
+pred.test <- predict(nb.out, X.tst)
+tst.acc <- mean(pred.test == y.tst)
+print("Output Table: ")
+table(pred.test, y.tst)
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+# get sensitivity and specificity of nb model
+nb.tpr <- getSensitivity(as.data.frame(table(pred.test, y.tst)))
+nb.tnr <- getSpecificity(as.data.frame(table(pred.test, y.tst)))
+nb.vect <- c("Naive Bayes", round(trn.acc,3), round(tst.acc,3), round(nb.tpr,3), round(nb.tnr,3)) # vector for comparison table
+```
+
+#### Compare against Random Forest model
+```{r, echo=F, eval=T, warnings=F}
+# grid search method to find best RF
+rf <- function(X, y){
+  
+  # grid search for optimal ntree, mtry
+  nodeSizes <- c(1, 5, 25, 100)
+  mtrySizes <- c(floor(sqrt(ncol(X))), ncol(X), floor(ncol(X)/3))
+  df.rf <- data.frame(mtryUsed = numeric(), nodeSize = numeric(), OOB=numeric())
+  for (msize in 1:3){
+    for (size in 1:4){
+      #set.seed(1)
+      fit <- randomForest(x = X, y = as.factor(y),
+                          mtry = mtrySizes[msize], 
+                          nodeSize = nodeSizes[size],
+                          importance = TRUE, ntree = 200)
+      df.rf <- rbind(df.rf, data.frame(mtryUsed = mtrySizes[msize],
+                                       nodeSize = nodeSizes[size],
+                                       OOB=mean(fit$err.rate[,1])))
+    }
+  }
+  # print(df.rf)
+  optNode <- df.rf$nodeSize[which.min(df.rf$OOB)]
+  optMtry <- df.rf$mtryUsed[which.min(df.rf$OOB)]
+  result <- data.frame("node.size" = optNode, "mtry" = optMtry)
+  return (output = list(df.rf, result))
+}
+```
+
+
+```{r, echo=F, eval=T, warnings=F} 
+# random forest model
+result <- rf(X.tst, y = y.tst)
+kable(result[1],  caption = "Cancer RF Grid Search Results", align=c("c", "r"))
+
+# Optimal
+print("Random Forest Tuning Results:")
+result[2][[1]]
+rf.out <- randomForest(x = X.tst, y = as.factor(y.tst), mtry = result[2][[1]]$mtry, ntree = 200, importance = T, nodeSize = result[2][[1]]$node.size)
+
+pred.train <- predict(rf.out, newdata = X.trn)
+trn.acc <- mean(pred.train == y.trn)
+
+pred.test <- predict(rf.out, newData = X.tst)
+tst.acc <- mean(pred.test == y.tst)
+print("Output Table:")
+table(pred.test , y.tst) # test response
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+# get sensitivity and specificity of rf model
+rf.tpr <- getSensitivity(as.data.frame(table(pred.test, y.tst)))
+rf.tnr <- getSpecificity(as.data.frame(table(pred.test, y.tst)))
+rf.vect <- c("Optimal Random Forest", round(trn.acc,3), round(tst.acc,3), round(rf.tpr,3), round(rf.tnr,3)) # vector for comparison table
+
+# compile comparison df
+comparison.df <- rbind(svm.vect, nb.vect, rf.vect)
+colnames(comparison.df) <- c("Model", "Train Acc", "Test Acc", "TPR", "TNR")
+rownames(comparison.df) <- NULL
+
+# plot table for comparison
+kable(comparison.df, caption = "Comparison of Various Models", align = c("c", "r"))
+```
+     
+Accuracy of the SVM classifier and the Random Forest classifier are relatively similar, and they both out-perform the Naive Bayes classifier. In such cases, choosing between the SVM model and the Random Forest model would come down to the nature and requirements of the problem being solved. For example, these requirements could include a need high interpretability or high computation efficiency. The nature of the problem, like if the data is observed to have high dimensionality and a large number of observations, would have an effect on the final model being chosen.
+     
+******
+
+## Glass Dataset
+The Glass dataset was chosen to show how the SVM classifier performs on data with multiple classes, relatively low dimensionality, and without linear separability.
+```{r, echo=F, eval=T, warnings=F, fig.height = 9, fig.width = 9, fig.align='center'} 
+# read data
+glass <- read.csv(file = "glass.csv", header = T)
+glass$Type <- as.factor(glass$Type)
+head(glass)
+
+# plot data
+cols <- character(nrow(glass))
+cols[] <- "black"
+cols[glass$Type == 2] <- palette()[2]
+cols[glass$Type == 3] <- palette()[3]
+cols[glass$Type == 5] <- palette()[5]
+cols[glass$Type == 6] <- palette()[6]
+cols[glass$Type == 7] <- palette()[7]
+pairs(glass[,1:9], col = cols) 
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+# sample with seed and partition training and test sets
+X <- glass[1:9]
+y <- as.factor(glass$Type)
+
+set.seed(1) # set seed
+trn.idx <- sample(1:nrow(glass), round(nrow(glass)*0.8, 0))
+tst.idx <- (-trn.idx)
+train <- glass[c(trn.idx),]
+test <- glass[c(-trn.idx),]
+
+X.trn <- X[c(trn.idx),]
+y.trn <- y[trn.idx]
+X.tst <- X[c(tst.idx),]
+y.tst <- y[tst.idx]
+
+# vectors for tuning
+kernels <- c("linear", "polynomial", "radial", "sigmoid")
+types <- c("C-classification")
+gam.vect <- c(0.01, 0.1, 0.25, 0.5, 1, 5, 10)
+c.vect <- c(0.01, 0.1, 0.5, 1, 2, 5)
+
+# get data frame of grid search results
+svm.df <- as.character(data.frame())
+for (i in 1:length(kernels)) {
+  for (j in 1:length(types)) {
+    # tune svm
+    set.seed(1)
+    svm.out <- tune.svm(Type ~., data = train, gamma = gam.vect, cost = c.vect, kernel = kernels[i], type = types[j])
+    best.params <- svm.out$best.parameters # best parameters from grid search
+    set.seed(1)
+    svm.best.mod <- svm(Type ~., data = train, gamma = best.params$gamma, cost = best.params$cost, kernel = kernels[i], type = types[j])
+    
+    pred.train <- predict(svm.best.mod, X.trn) # training response
+    trn.acc <- mean(pred.train == y.trn) 
+    # table(pred.train, y.trn)
+    pred.test <- predict(svm.best.mod, X.tst) # test response
+    tst.acc <- mean(pred.test == y.tst)
+    # table(pred.test, y.tst)
+    
+    temp.vect <- c(kernels[i], types[j], best.params$gamma, best.params$cost, round(trn.acc,3), round(tst.acc,3), sum(svm.best.mod$nSV))
+    svm.df <- rbind(svm.df, as.character(temp.vect))
+  }
+}
+colnames(svm.df) <- c("kernel", "type", "best.gamma", "best.c", "training.acc", "test.acc", "num.sp.vects") # modify column names
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+# get optimal model for svm and get values
+set.seed(1)
+svm.opt.out <- svm(Type ~., data = train, gamma = 1, cost = 2, kernel = "polynomial", type = "C-classification")
+
+pred.train <- predict(svm.opt.out, X.trn) # training response
+trn.acc <- mean(pred.train == y.trn)
+pred.test <- predict(svm.opt.out, X.tst) # optimal svm model test predictions 
+tst.acc <- mean(pred.test == y.tst)
+
+svm.vect <- c("Optimal SVM", round(trn.acc,3), round(tst.acc,3)) # vector for comparison table
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+# plot table for grid search
+kable(svm.df, caption = "Glass Grid-Search Results", align = c("c", "r"))
+```
+    
+#### Compare against Naive Bayes model
+```{r, echo=F, eval=T, warnings=F} 
+# naive bayes model
+nb.out <- naiveBayes(Type ~., data = train)
+
+# predict training response
+pred.train <- predict(nb.out, X.trn)
+trn.acc <- mean(pred.train == y.trn)
+# table(pred.train, y.trn)
+
+# predict test response
+pred.test <- predict(nb.out, X.tst)
+tst.acc <- mean(pred.test == y.tst)
+print("Output Table:")
+table(pred.test, y.tst)
+```
+
+```{r, echo=F, eval=T, warnings=F} 
+nb.vect <- c("Naive Bayes", round(trn.acc,3), round(tst.acc,3)) # vector for comparison table
+```
+
+#### Compare to Random Forest Model
+```{r, echo=F, eval=T, warnings=F}
+# random forest model
+result <- rf(X.tst, y = y.tst)
+kable(result[1],  caption = "Glass RF Grid Search Results", align=c("c", "r"))  
+  
+# Optimal
+print("Random Forest Tuning Results:")
+result[2][[1]]
+rf.out <- randomForest(x = X.tst, y = as.factor(y.tst), mtry = result[2][[1]]$mtry, ntree = 200, importance = T, nodeSize = result[2][[1]]$node.size)
+```
+
+```{r, echo=F, eval = T, warnings = F}
+pred.train <- predict(rf.out, newdata = X.trn)
+trn.acc <- mean(pred.train == y.trn)
+
+pred.test <- predict(rf.out, newData = X.tst)
+tst.acc <- mean(pred.test == y.tst)
+
+print("Output Table: ")
+table(pred.test , y.tst) # test response
+
+rf.vect <- c("Optimal Random Forest", round(trn.acc,3), round(tst.acc,3))
+
+# compile comparison df
+comparison.df <- rbind(svm.vect, nb.vect, rf.vect)
+colnames(comparison.df) <- c("Model", "Train Acc", "Test Acc")
+rownames(comparison.df) <- NULL
+
+# plot table for comparison
+kable(comparison.df, caption = "Comparison of Various Models", align = c("c", "r"))
+```
+    
+Much better than random guessing, our SVM model is performing well at classifying the glass classes. Although it has en error rate upwards of 20%, it is still performing better than the Random Forest model, and significantly better than the Naive Bayes model. 
+
+
+******
+## Binary-Class Concentric Circle Problem
+The example below is to illustrate the difference in effectiveness between the different kernels.
+```{r, echo=F, eval=T, warnings=F, fig.height = 6, fig.width = 6, fig.align='center'} 
+# create concentric circles plot to compare linear and radial kernel
+num.classes <- c(1,2)
+diff <- c(1, 1.3)
+d <- as.character(data.frame())
+for (i in 1:length(num.classes)) {
+  scale <- runif(200, 0.9, 1.1)
+  vals <- runif(200, 0, 2*3.142)
+  x <- diff[i] * cos(vals)*scale
+  y <- diff[i] * sin(vals)*scale
+  class <- rep(num.classes[i], 100, replace = T)
+  df <- cbind(x, y, class)
+  d <- rbind(d, df)
+}
+d <- as.data.frame(d)
+d$x <- as.numeric(as.character(d$x))
+d$y <- as.numeric(as.character(d$y))
+
+cols <- character(nrow(d))
+cols[] <- "tomato2"
+cols[d$class == 2] <- "slateblue"
+plot(d[,1:2], col = cols, main = "Plot of Two Classes")
+```
+
+```{r, echo=F, eval=T, warnings=F, fig.height = 5, fig.width = 7, fig.align='center'} 
+# partition X matrix and y response
+X <- d[,1:2]
+y <- as.factor(d$class) # as factor
+
+# sample with seed and partition training and test sets
+set.seed(1) # set seed
+trn.idx <- sample(1:nrow(d), round(nrow(d)*0.8, 0))
+tst.idx <- (-trn.idx)
+train <- d[c(trn.idx),]
+test <- d[c(-trn.idx),]
+
+X.trn <- X[c(trn.idx),]
+y.trn <- y[trn.idx]
+X.tst <- X[c(tst.idx),]
+y.tst <- y[tst.idx]
+
+df <- as.character(data.frame())
+get.append.vect <- function(pred.test, s, numSV) {
+  tpr <- getSensitivity(as.data.frame(table(pred.test, y.tst)))
+  tnr <- getSpecificity(as.data.frame(table(pred.test, y.tst)))
+  vect <- c(as.character(s), numSV, round(tpr,3), round(tnr,3))
+  return(vect)
+}
+```
+
+#### Linear Kernel
+```{r, echo=F, eval=T, warnings=F, fig.height = 5, fig.width = 7, fig.align='center'}
+svm.d <- svm(class ~., data = train, kernel = "linear", type = "C-classification")
+pred.test <- predict(svm.d, X.tst) # test response
+print("Output Table:")
+table(pred.test, y.tst)
+summary(svm.d)
+plot(svm.d, data = d)
+df <- rbind(df, get.append.vect(pred.test, "linear", sum(svm.d$nSV)))
+```
+
+#### Polynomial Kernel
+```{r, echo=F, eval=T, warnings=F, fig.height = 5, fig.width = 7, fig.align='center'}
+svm.d <- svm(class ~., data = train, kernel = "polynomial", type = "C-classification")
+pred.test <- predict(svm.d, X.tst) # test response
+print("Output Table:")
+table(pred.test, y.tst)
+summary(svm.d)
+plot(svm.d, data = d)
+df <- rbind(df, get.append.vect(pred.test, "polynomial", sum(svm.d$nSV)))
+```
+
+#### Radial Kernel   
+```{r, echo=F, eval=T, warnings=F, fig.height = 5, fig.width = 7, fig.align='center'}
+svm.d <- svm(class ~., data = train, kernel = "radial", type = "C-classification")
+pred.test <- predict(svm.d, X.tst) # test response
+print("Output Table:")
+table(pred.test, y.tst)
+summary(svm.d)
+plot(svm.d, data = d)
+df <- rbind(df, get.append.vect(pred.test, "radial", sum(svm.d$nSV)))
+```
+
+```{r, echo=F, eval = T, warnings = F}
+# plot table for comparison
+colnames(df) <- c("Kernel", "Num Sp Vects", "TPR", "TNR")
+kable(df, caption = "Comparison of Various Kernels", align = c("c", "r"))
+```
+     
+Though this case is for illustrative purposes and is highly unlikely to appear in reality, it can be observed that the radial kernel is  more effective at classifying the observations than the linear and polynomial kernel. It achieves a 100% accuracy and requires a significantly fewer number of support vectors to do so. 
